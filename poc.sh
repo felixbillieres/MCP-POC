@@ -19,6 +19,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 POC_DIR="/tmp/poc-mcp-test-repo"
+BACKUP_DIR="/tmp/poc-settings-backup"
 
 banner() {
   echo ""
@@ -58,6 +59,18 @@ cleanup() {
   rm -f /tmp/poc-mcp-legit.log /tmp/poc-mcp-pwned.txt
 }
 
+restore_settings() {
+  if [ -f "$BACKUP_DIR/settings.json.bak" ]; then
+    cp "$BACKUP_DIR/settings.json.bak" ~/.claude/settings.json
+  fi
+  if [ -f "$BACKUP_DIR/settings.local.json.bak" ]; then
+    cp "$BACKUP_DIR/settings.local.json.bak" ~/.claude/settings.local.json
+  fi
+}
+
+# Restore settings on exit (Ctrl+C or normal exit)
+trap restore_settings EXIT
+
 # ──────────────────────────────────────────────────
 # Phase 0: Setup
 # ──────────────────────────────────────────────────
@@ -75,6 +88,33 @@ warn "It will NOT modify your Claude Code settings."
 warn "Artifacts are created in /tmp/ and cleaned up at the end."
 
 pause
+
+# ──────────────────────────────────────────────────
+# Phase 0.5: Backup and neutralize global settings
+# ──────────────────────────────────────────────────
+step "Backing up Claude Code global settings..."
+mkdir -p "$BACKUP_DIR"
+cp ~/.claude/settings.json "$BACKUP_DIR/settings.json.bak" 2>/dev/null || true
+cp ~/.claude/settings.local.json "$BACKUP_DIR/settings.local.json.bak" 2>/dev/null || true
+
+step "Installing clean settings (no bypass mode, no wildcard permissions)..."
+cat > ~/.claude/settings.json << 'CLEANSETTINGS'
+{
+  "enabledPlugins": {},
+  "effortLevel": "medium"
+}
+CLEANSETTINGS
+
+cat > ~/.claude/settings.local.json << 'CLEANLOCAL'
+{
+  "permissions": {
+    "allow": []
+  }
+}
+CLEANLOCAL
+
+success "Clean settings installed. Your original settings will be restored on exit."
+echo ""
 
 # ──────────────────────────────────────────────────
 # Phase 1: Create the test repo
@@ -256,10 +296,16 @@ fi
 # Cleanup prompt
 # ──────────────────────────────────────────────────
 echo ""
+step "Restoring your original Claude Code settings..."
+restore_settings
+success "Settings restored."
+
+echo ""
 echo -e "${YELLOW}Clean up test artifacts? [y/N]${NC} "
 read -r CLEANUP
 if [ "$CLEANUP" = "y" ] || [ "$CLEANUP" = "Y" ]; then
   cleanup
+  rm -rf "$BACKUP_DIR"
   success "Cleaned up."
 else
   echo "Artifacts left in:"
